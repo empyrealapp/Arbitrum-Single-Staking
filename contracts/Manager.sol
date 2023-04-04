@@ -33,7 +33,6 @@ contract Manager is AccessControlled, ContractGuard {
 
     // core components
     IVault public vault;
-    IBasisAsset public arbitrum;
     IBasisAsset public USDC;
     IGovernanceIncentiveCalculator governanceIncentiveCalculator;
     ICamelotRouter public router;
@@ -100,17 +99,11 @@ contract Manager is AccessControlled, ContractGuard {
     function initialize(
         IVault _vault,
         IGovernanceIncentiveCalculator _governanceIncentiveCalculator,
-        IBasisAsset _usdc,
-        IBasisAsset _arbitrum,
-        ICamelotRouter _router,
         uint256 _startTime
     ) public onlyController notInitialized {
         governanceIncentiveCalculator = _governanceIncentiveCalculator;
-        arbitrum = _arbitrum;
-        USDC = _usdc;
         vault = _vault;
         startTime = _startTime;
-        router = _router;
 
         initialized = true;
         emit Initialized(msg.sender, block.number);
@@ -146,18 +139,8 @@ contract Manager is AccessControlled, ContractGuard {
         checkCondition
         checkEpoch
     {
-        // _updatePrices();
-        address[] memory route = new address[](3);
-        route[0] = address(arbitrum);
-        route[1] = address(USDC);
-        route[2] = address(firmament());
-        uint firmamentPriceInArb = router.getAmountsOut(1 ether, route)[2];
         _sendToVault(
-            governanceIncentiveCalculator.calculateGrowth(
-                firmamentPriceInArb,
-                address(vault),
-                arbitrum
-            )
+            governanceIncentiveCalculator.calculateGrowth(address(vault))
         );
     }
 

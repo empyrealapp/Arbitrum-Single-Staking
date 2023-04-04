@@ -8,13 +8,14 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./utils/ContractGuard.sol";
 import "./interfaces/IBasisAsset.sol";
 import "./interfaces/IManager.sol";
-import "hardhat/console.sol";
+import "./interfaces/IDelegate.sol";
 
 abstract contract ArbitrumWrapper {
     using SafeERC20 for IERC20;
-    uint constant MULTIPLIER = 225;
-    uint constant ANNUAL_PERIODS = 365 * 2;
+    uint constant MULTIPLIER = 125;
+    uint constant ANNUAL_PERIODS = 200;
 
+    uint public maxMultiple = 22500;
     address public firmament;
     address public arbitrum;
     uint256 private _totalSupply;
@@ -110,7 +111,7 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
         if (member != address(0)) {
             PassengerSeat memory seat = members[member];
             seat.rewardEarned = earned(member);
-            seat.multiplier += getMultiplierPoints(member);
+            seat.multiplier = getMultiplierPoints(member);
             seat.lastSnapshotIndex = latestSnapshotIndex() + warmupEpochs;
             members[member] = seat;
         }
@@ -280,12 +281,15 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
 
     function getMultiplier(address member) public view returns (uint256) {
         uint256 rewardPoints = members[member].multiplier;
-        uint256 reward = members[member].rewardEarned;
+        uint256 reward = earned(member);
         uint balance = balanceOf(member);
-        uint multiple = 1e18 +
-            (MULTIPLIER * (rewardPoints ** 2 * 1e18)) /
+        uint multiple = 10000 +
+            (MULTIPLIER * (rewardPoints ** 2 * 100)) /
             (ANNUAL_PERIODS * balance) ** 2;
-        return (multiple * reward) / 1e18;
+        if (multiple > maxMultiple) {
+            multiple = maxMultiple;
+        }
+        return (multiple * reward) / 10000;
     }
 
     function claimReward() public updateReward(msg.sender) {
@@ -338,8 +342,8 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
         emit RewardAdded(msg.sender, amount);
     }
 
-    function delegate() public {
-        IDelegate(arbitrum).delegate(controller());
+    function delegate(address delegatee) public onlyOwner {
+        IDelegate(arbitrum).delegate(delegatee);
     }
 
     function governanceRecoverUnsupported(
@@ -351,5 +355,10 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
         require(address(_token) != firmament, "firmament");
         require(address(_token) != arbitrum, "arbitrum");
         _token.safeTransfer(_to, _amount);
+    }
+
+    function setMaxMultiple(uint256 _newMultiple) external onlyOwner {
+        require(_newMultiple < 100000, "over max multiple");
+        maxMultiple = _newMultiple;
     }
 }
