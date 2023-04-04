@@ -11,6 +11,7 @@ import "./interfaces/IBasisAsset.sol";
 import "./interfaces/IOracle.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IGovernanceIncentiveCalculator.sol";
+import "./interfaces/ICamelotRouter.sol";
 import "./types/AccessControlled.sol";
 
 contract Manager is AccessControlled, ContractGuard {
@@ -31,11 +32,11 @@ contract Manager is AccessControlled, ContractGuard {
     uint256 public epoch = 0;
 
     // core components
-    IOracle public empyrealOracle;
-    IOracle public firmamentOracle;
     IVault public vault;
     IBasisAsset public arbitrum;
+    IBasisAsset public USDC;
     IGovernanceIncentiveCalculator governanceIncentiveCalculator;
+    ICamelotRouter public router;
 
     // price
     uint256 public empyrealPriceOne;
@@ -92,92 +93,31 @@ contract Manager is AccessControlled, ContractGuard {
         return startTime + (epoch * PERIOD);
     }
 
-    // oracle
-    function getEmpyrealPrice() public view returns (uint256 empyrealPrice) {
-        try IOracle(empyrealOracle).consult(empyreal(), 1e18) returns (
-            uint144 price
-        ) {
-            return uint256(price);
-        } catch {
-            revert(
-                "Treasury: failed to consult EMPYREAL price from the oracle"
-            );
-        }
-    }
-
-    function getFirmamentPrice() public view returns (uint256 firmamentPrice) {
-        try IOracle(firmamentOracle).consult(firmament(), 1e18) returns (
-            uint144 price
-        ) {
-            return uint256(price);
-        } catch {
-            revert(
-                "Treasury: failed to consult FIRMAMENT price from the oracle"
-            );
-        }
-    }
-
-    function getEmpyrealUpdatedPrice()
-        public
-        view
-        returns (uint256 _empyrealPrice)
-    {
-        try IOracle(empyrealOracle).twap(empyreal(), 1e18) returns (
-            uint144 price
-        ) {
-            return uint256(price);
-        } catch {
-            revert(
-                "Treasury: failed to consult EMPYREAL price from the oracle"
-            );
-        }
-    }
-
-    function getFirmamentUpdatedPrice()
-        public
-        view
-        returns (uint256 _firmamentPrice)
-    {
-        try IOracle(firmamentOracle).twap(firmament(), 1e18) returns (
-            uint144 price
-        ) {
-            return uint256(price);
-        } catch {
-            revert(
-                "Treasury: failed to consult FIRMAMENT price from the oracle"
-            );
-        }
-    }
-
     /* ========== GOVERNANCE ========== */
 
     constructor(IAuthority _authority) AccessControlled(_authority) {}
 
     function initialize(
-        IOracle _empyrealOracle,
-        IOracle _firmamentOracle,
         IVault _vault,
         IGovernanceIncentiveCalculator _governanceIncentiveCalculator,
+        IBasisAsset _usdc,
         IBasisAsset _arbitrum,
+        ICamelotRouter _router,
         uint256 _startTime
     ) public onlyController notInitialized {
-        empyrealOracle = _empyrealOracle;
-        firmamentOracle = _firmamentOracle;
         governanceIncentiveCalculator = _governanceIncentiveCalculator;
         arbitrum = _arbitrum;
+        USDC = _usdc;
         vault = _vault;
         startTime = _startTime;
+        router = _router;
 
         initialized = true;
         emit Initialized(msg.sender, block.number);
     }
 
-    function setOracles(
-        IOracle _empyrealOracle,
-        IOracle _firmamentOracle
-    ) external onlyController {
-        empyrealOracle = _empyrealOracle;
-        firmamentOracle = _firmamentOracle;
+    function setRouter(ICamelotRouter _router) external onlyController {
+        router = _router;
     }
 
     function setGovernanceIncentiveCalculator(
@@ -189,22 +129,12 @@ contract Manager is AccessControlled, ContractGuard {
 
     /* ========== MUTABLE FUNCTIONS ========== */
 
-    function _updatePrices() internal {
-        try IOracle(empyrealOracle).update() {} catch {}
-        try IOracle(firmamentOracle).update() {} catch {}
-    }
-
     function getEmpyrealCirculatingSupply() public view returns (uint256) {
         IERC20 empyrealErc20 = IERC20(empyreal());
         return empyrealErc20.totalSupply();
     }
 
     function _sendToVault(uint256 _amount) internal {
-        // address _firmament = firmament();
-        // IBasisAsset(_firmament).mint(address(this), _amount);
-
-        // IERC20(_firmament).safeApprove(address(vault), 0);
-        // IERC20(_firmament).safeApprove(address(vault), _amount);
         vault.allocateGovernanceIncentive(_amount);
 
         emit ArbitrumVaultFunded(block.timestamp, _amount);
@@ -217,11 +147,13 @@ contract Manager is AccessControlled, ContractGuard {
         checkEpoch
     {
         // _updatePrices();
-        uint arbitrumPrice = 1 ether;
-        uint firmamentPriceInArb = 175 ether;
+        address[] memory route = new address[](3);
+        route[0] = address(arbitrum);
+        route[1] = address(USDC);
+        route[2] = address(firmament());
+        uint firmamentPriceInArb = router.getAmountsOut(1 ether, route)[2];
         _sendToVault(
             governanceIncentiveCalculator.calculateGrowth(
-                arbitrumPrice,
                 firmamentPriceInArb,
                 address(vault),
                 arbitrum

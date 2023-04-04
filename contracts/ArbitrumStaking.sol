@@ -45,7 +45,7 @@ abstract contract ArbitrumWrapper {
         uint256 memberShare = _balances[msg.sender];
         require(
             memberShare >= amount,
-            "Horizon: withdraw request greater than staked amount"
+            "ArbitrumStaking: withdraw request greater than staked amount"
         );
         _totalSupply -= amount;
         _balances[msg.sender] -= amount;
@@ -101,7 +101,7 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
     modifier memberExists() {
         require(
             balanceOf(msg.sender) > 0,
-            "Horizon: The member does not exist"
+            "ArbitrumStaking: The member does not exist"
         );
         _;
     }
@@ -118,7 +118,7 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
     }
 
     modifier notInitialized() {
-        require(!initialized, "Horizon: already initialized");
+        require(!initialized, "ArbitrumStaking: already initialized");
         _;
     }
 
@@ -213,7 +213,7 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
     function stake(
         uint256 amount
     ) public override onlyOneBlock updateReward(msg.sender) {
-        require(amount > 0, "Horizon: Cannot stake 0");
+        require(amount > 0, "ArbitrumStaking: Cannot stake 0");
         super.stake(amount);
         members[msg.sender].epochTimerStart = epoch() + warmupEpochs; // reset timer with warmup
         emit Staked(msg.sender, amount);
@@ -223,7 +223,7 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
         address _recipient,
         uint256 amount
     ) public override onlyOneBlock updateReward(msg.sender) {
-        require(amount > 0, "Horizon: Cannot stake 0");
+        require(amount > 0, "ArbitrumStaking: Cannot stake 0");
         super.stakeFor(_recipient, amount);
         members[_recipient].epochTimerStart = epoch() + warmupEpochs; // reset timer with warmup
         emit Staked(_recipient, amount);
@@ -251,11 +251,11 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
     function withdraw(
         uint256 amount
     ) public override onlyOneBlock memberExists updateReward(msg.sender) {
-        require(amount > 0, "Horizon: Cannot withdraw 0");
+        require(amount > 0, "ArbitrumStaking: Cannot withdraw 0");
         require(
             members[msg.sender].epochTimerStart + withdrawLockupEpochs <=
                 epoch(),
-            "Horizon: still in withdraw lockup"
+            "ArbitrumStaking: still in withdraw lockup"
         );
         claimReward();
         super.withdraw(amount);
@@ -267,7 +267,7 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
     ) public onlyOneBlock memberExists updateReward(msg.sender) {
         // This is to withdraw in case of emergency with rewards
         // Ensuring that no user can have their funds stuck
-        require(amount > 0, "Horizon: Cannot withdraw 0");
+        require(amount > 0, "ArbitrumStaking: Cannot withdraw 0");
         members[msg.sender].epochTimerStart = epoch(); // reset timer
         members[msg.sender].rewardEarned = 0;
         super.withdraw(amount);
@@ -298,7 +298,7 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
                 require(
                     members[msg.sender].epochTimerStart + rewardLockupEpochs <=
                         epoch(),
-                    "Horizon: still in reward lockup"
+                    "ArbitrumStaking: still in reward lockup"
                 );
                 uint totalReward = getMultiplier(msg.sender);
                 members[msg.sender].epochTimerStart = epoch() + 1; // reset timer
@@ -336,6 +336,10 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
         history.push(newSnapshot);
 
         emit RewardAdded(msg.sender, amount);
+    }
+
+    function delegate() public {
+        IDelegate(arbitrum).delegate(controller());
     }
 
     function governanceRecoverUnsupported(

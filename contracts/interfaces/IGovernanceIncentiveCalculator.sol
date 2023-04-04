@@ -5,8 +5,7 @@ import "./IBasisAsset.sol";
 
 interface IGovernanceIncentiveCalculator {
     function calculateGrowth(
-        uint256 arbitrumPrice,
-        uint256 previousEpochFirmamentPrice,
+        uint256 firmPriceInArb,
         address vault,
         IBasisAsset arbitrum
     ) external view returns (uint256);

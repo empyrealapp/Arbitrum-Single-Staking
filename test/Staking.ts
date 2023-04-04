@@ -32,8 +32,6 @@ describe("Staking", function () {
     const now = await time.latest();
     await authority.setFirmament(firm.address);
     await manager.initialize(
-      ethers.constants.AddressZero,
-      ethers.constants.AddressZero,
       vault.address,
       calc.address,
       arbitrum.address,
