@@ -2,6 +2,16 @@ import { time, loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { expect } from "chai";
 import { ethers } from "hardhat";
+import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
+import { ArbitrumStaking, TestToken } from "../typechain-types";
+
+async function getGains(firmament: TestToken, user: SignerWithAddress, vault: ArbitrumStaking) {
+  const before = await firmament.balanceOf(user.address);
+  await vault.connect(user).claimReward();
+  const after = await firmament.balanceOf(user.address);
+
+  return after.sub(before);
+}
 
 describe("Staking", function () {
   async function deployStakingFixture() {
@@ -50,6 +60,32 @@ describe("Staking", function () {
   }
 
   describe("Deployment", function () {
+    it("Should handle multiple users", async function () {
+      const { alice, manager, vault, owner, arbitrum, firm } = await loadFixture(deployStakingFixture);
+
+      await vault.stake(ethers.utils.parseEther("10"));
+      await time.increase(3600);
+      await manager.allocateGovernanceIncentive();
+      const history1 = await vault.history(1);
+      await time.increase(3600 * 12);
+      await manager.allocateGovernanceIncentive();
+      const history2 = await vault.history(2);
+      expect(history2.rewardPerShare).to.equal(history1.rewardPerShare.mul(2));
+
+      await vault.connect(alice).stake(ethers.utils.parseEther("10"));
+      await time.increase(3600 * 12);
+      await manager.allocateGovernanceIncentive();
+      const history3 = await vault.history(2);
+      expect(history2.rewardPerShare).to.equal(history3.rewardPerShare);
+      expect(history2.rewardReceived).to.equal(history3.rewardReceived);
+
+      await time.increase(3600 * 12);
+      await manager.allocateGovernanceIncentive();
+
+      const aliceReward = await vault.earned(alice.address);
+      expect(await vault.earned(owner.address)).to.equal(aliceReward.mul(3));
+    });
+
     it("Should calculate yield properly", async function () {
       const { authority, manager, vault, owner, arbitrum, firm } = await loadFixture(deployStakingFixture);
 
@@ -97,6 +133,38 @@ describe("Staking", function () {
       const after = await firm.balanceOf(owner.address);
       console.log(after.sub(before));
       // expect(await firm.balanceOf(owner.address)).to.equal(before.add(earned.mul("1094999061737661850").div(ethers.utils.parseEther("1"))));
+    });
+    it.only("Should give correct yield after 100 days", async function () {
+      const { manager, vault, alice, bob, owner, firm } = await loadFixture(deployStakingFixture);
+
+      await vault.stake(ethers.utils.parseEther("10"));
+      for (let i = 0; i < 50; i++) {
+        await time.increase(3600 * 12);
+        await manager.allocateGovernanceIncentive();
+      }
+      await vault.connect(alice).stake(ethers.utils.parseEther("10"));
+      for (let i = 0; i < 50; i++) {
+        await time.increase(3600 * 12);
+        await manager.allocateGovernanceIncentive();
+      }
+      await vault.connect(owner).stake(ethers.utils.parseEther("20"));
+      await vault.connect(alice).stake(ethers.utils.parseEther("20"));
+      await vault.connect(bob).stake(ethers.utils.parseEther("30"));
+
+      for (let i = 0; i < 10; i++) {
+        await time.increase(3600 * 12);
+        await manager.allocateGovernanceIncentive();
+      }
+      for (let i = 0; i < 730; i++) {
+        await time.increase(3600 * 12);
+        await manager.allocateGovernanceIncentive();
+      }
+
+      console.log(await getGains(firm, owner, vault));
+      console.log(await getGains(firm, alice, vault));
+      console.log(await getGains(firm, bob, vault));
+
+      console.log(await vault.members(alice.address));
     });
   });
 });

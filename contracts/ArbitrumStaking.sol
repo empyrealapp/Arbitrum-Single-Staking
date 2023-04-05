@@ -253,11 +253,11 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
         uint256 amount
     ) public override onlyOneBlock memberExists updateReward(msg.sender) {
         require(amount > 0, "ArbitrumStaking: Cannot withdraw 0");
-        require(
-            members[msg.sender].epochTimerStart + withdrawLockupEpochs <=
-                epoch(),
-            "ArbitrumStaking: still in withdraw lockup"
-        );
+        // require(
+        //     members[msg.sender].epochTimerStart + withdrawLockupEpochs <=
+        //         epoch(),
+        //     "ArbitrumStaking: still in withdraw lockup"
+        // );
         claimReward();
         super.withdraw(amount);
         emit Withdrawn(msg.sender, amount);

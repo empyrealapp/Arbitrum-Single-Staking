@@ -8,7 +8,7 @@ import "hardhat/console.sol";
 
 contract MockGovernanceIncentiveCalculator is Ownable {
     uint APR = 500;
-    uint public firmamentPriceInArb = 147946065751659741874;
+    uint public firmamentPriceInArb = 150000000000000000000;
     address arbitrum;
 
     constructor(
