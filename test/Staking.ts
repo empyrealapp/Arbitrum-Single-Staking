@@ -1,13 +1,16 @@
 import { time, loadFixture } from "@nomicfoundation/hardhat-network-helpers";
-import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { ArbitrumStaking, TestToken } from "../typechain-types";
 
-async function getGains(firmament: TestToken, user: SignerWithAddress, vault: ArbitrumStaking) {
+async function getGains(firmament: TestToken, user: SignerWithAddress, vault: ArbitrumStaking, withdraw = true) {
   const before = await firmament.balanceOf(user.address);
-  await vault.connect(user).claimReward();
+  if (withdraw) {
+    await vault.connect(user).withdraw(await vault.balanceOf(user.address));
+  } else {
+    await vault.connect(user).claimReward();
+  }
   const after = await firmament.balanceOf(user.address);
 
   return after.sub(before);
@@ -134,7 +137,8 @@ describe("Staking", function () {
       console.log(after.sub(before));
       // expect(await firm.balanceOf(owner.address)).to.equal(before.add(earned.mul("1094999061737661850").div(ethers.utils.parseEther("1"))));
     });
-    it.only("Should give correct yield after 100 days", async function () {
+
+    it("Should give correct yield after 100 days", async function () {
       const { manager, vault, alice, bob, owner, firm } = await loadFixture(deployStakingFixture);
 
       await vault.stake(ethers.utils.parseEther("10"));
@@ -165,6 +169,99 @@ describe("Staking", function () {
       console.log(await getGains(firm, bob, vault));
 
       console.log(await vault.members(alice.address));
+    });
+
+    it("Should give correct yield if staking twice", async function () {
+      const { manager, vault, alice, bob, owner, firm } = await loadFixture(deployStakingFixture);
+
+      await vault.stake(ethers.utils.parseEther("10"));
+      for (let i = 0; i < 100; i++) {
+        await time.increase(3600 * 12);
+        await manager.allocateGovernanceIncentive();
+      }
+      const gains = await getGains(firm, owner, vault)
+
+      const before = await firm.balanceOf(owner.address);
+      for (let i = 0; i < 2; i++) {
+        await vault.stake(ethers.utils.parseEther("10"));
+        for (let i = 0; i < 100; i++) {
+          await time.increase(3600 * 12);
+          await manager.allocateGovernanceIncentive();
+        }
+        await getGains(firm, owner, vault)
+      }
+      const after = await firm.balanceOf(owner.address);
+
+      expect(after.sub(before)).to.equal(gains.mul(2));
+    });
+
+    it("Should give regenerate yield after claiming", async function () {
+      const { manager, vault, alice, bob, owner, firm } = await loadFixture(deployStakingFixture);
+
+      await vault.stake(ethers.utils.parseEther("10"));
+      for (let i = 0; i < 100; i++) {
+        await time.increase(3600 * 12);
+        await manager.allocateGovernanceIncentive();
+      }
+      let multiple = await vault.getMultiple(owner.address);
+      const earned = await vault.getMultiplier(owner.address);
+      const gains = await getGains(firm, owner, vault, false);
+
+      // additional deposits should not impact user reward
+      await vault.connect(alice).stake(ethers.utils.parseEther("1000"));
+      await vault.connect(bob).stake(ethers.utils.parseEther("1000"));
+
+      for (let i = 0; i < 100; i++) {
+        await time.increase(3600 * 12);
+        await manager.allocateGovernanceIncentive();
+      }
+      multiple = await vault.getMultiple(owner.address);
+
+      const gains2 = await getGains(firm, owner, vault)
+
+      expect(gains).to.equal(gains2);
+      expect(gains).to.equal(earned);
+    });
+
+    it("Should max out the multiple", async function () {
+      const { manager, vault, owner } = await loadFixture(deployStakingFixture);
+
+      await vault.stake(ethers.utils.parseEther("10"));
+      for (let i = 0; i < 201; i++) {
+        await time.increase(3600 * 12);
+        await manager.allocateGovernanceIncentive();
+      }
+      let multiple = await vault.getMultiple(owner.address);
+      expect(multiple).to.equal(22500);
+
+      for (let i = 0; i < 201; i++) {
+        await time.increase(3600 * 12);
+        await manager.allocateGovernanceIncentive();
+      }
+      multiple = await vault.getMultiple(owner.address);
+      expect(multiple).to.equal(22500);
+    });
+
+    it("Should reset on claim", async function () {
+      const { firm, manager, vault, owner } = await loadFixture(deployStakingFixture);
+
+      await vault.stake(ethers.utils.parseEther("10"));
+      for (let i = 0; i < 201; i++) {
+        await time.increase(3600 * 12);
+        await manager.allocateGovernanceIncentive();
+      }
+      await getGains(firm, owner, vault, false);
+      let multiple = await vault.getMultiple(owner.address);
+      expect(multiple).to.equal(10000);
+      expect(await vault.earned(owner.address)).to.equal(0);
+      await time.increase(3600 * 12);
+      await manager.allocateGovernanceIncentive();
+      expect(multiple).to.equal(10000);
+      expect(await vault.earned(owner.address)).to.equal(0);
+      await time.increase(3600 * 12);
+      await manager.allocateGovernanceIncentive();
+      expect(multiple).to.equal(10000);
+      expect(await vault.earned(owner.address)).to.equal(ethers.utils.parseEther("1").div(20).div(150).div(365).div(2).mul(10));
     });
   });
 });
