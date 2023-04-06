@@ -36,12 +36,6 @@ abstract contract ArbitrumWrapper {
         IERC20(arbitrum).safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    function stakeFor(address _receiver, uint256 amount) public virtual {
-        _totalSupply += amount;
-        _balances[_receiver] += amount;
-        IERC20(arbitrum).safeTransferFrom(msg.sender, address(this), amount);
-    }
-
     function withdraw(uint256 amount) public virtual {
         uint256 memberShare = _balances[msg.sender];
         require(
@@ -76,6 +70,7 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
     /* ========== STATE VARIABLES ========== */
 
     address public manager;
+    uint256 public maxDepositAmount = 1_000_000 ether;
 
     // flags
     bool public initialized = false;
@@ -216,37 +211,9 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
     ) public override onlyOneBlock updateReward(msg.sender) {
         require(amount > 0, "ArbitrumStaking: Cannot stake 0");
         super.stake(amount);
+        require(totalSupply() < maxDepositAmount, "over max amount");
         members[msg.sender].epochTimerStart = epoch() + warmupEpochs; // reset timer with warmup
         emit Staked(msg.sender, amount);
-    }
-
-    function stakeFor(
-        address _recipient,
-        uint256 amount
-    ) public override onlyOneBlock updateReward(msg.sender) {
-        require(amount > 0, "ArbitrumStaking: Cannot stake 0");
-        super.stakeFor(_recipient, amount);
-        members[_recipient].epochTimerStart = epoch() + warmupEpochs; // reset timer with warmup
-        emit Staked(_recipient, amount);
-    }
-
-    function stakeForMany(
-        address[] calldata _receivers,
-        uint256[] calldata _amounts
-    ) public onlyOneBlock {
-        for (uint i = 0; i < _receivers.length; i++) {
-            address member = _receivers[i];
-            uint256 _amount = _amounts[i];
-
-            PassengerSeat memory seat = members[member];
-            seat.rewardEarned = earned(member);
-            seat.lastSnapshotIndex = latestSnapshotIndex() + warmupEpochs;
-            members[member] = seat;
-
-            super.stakeFor(member, _amount);
-            members[member].epochTimerStart = epoch(); // reset timer
-            emit Staked(member, _amount);
-        }
     }
 
     function withdraw(
@@ -279,20 +246,31 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
         withdraw(balanceOf(msg.sender));
     }
 
-    function getMultiplier(address member) public view returns (uint256) {
-        uint256 rewardPoints = members[member].multiplier;
-        uint256 reward = earned(member);
+    function getMultiple(address member) public view returns (uint256 mult) {
+        uint256 rewardPoints = getMultiplierPoints(member);
         uint balance = balanceOf(member);
-        uint multiple = 10000 +
+        if (balance == 0) {
+            return 0;
+        }
+        mult =
+            10000 +
             (MULTIPLIER * (rewardPoints ** 2 * 100)) /
             (ANNUAL_PERIODS * balance) ** 2;
-        if (multiple > maxMultiple) {
-            multiple = maxMultiple;
+        if (mult > maxMultiple) {
+            mult = maxMultiple;
         }
+    }
+
+    function getMultiplier(address member) public view returns (uint256) {
+        uint256 reward = earned(member);
+        uint multiple = getMultiple(member);
         return (multiple * reward) / 10000;
     }
 
     function claimReward() public updateReward(msg.sender) {
+        if (epoch() == 0) {
+            return;
+        }
         if (epoch() - warmupEpochs <= members[msg.sender].epochTimerStart) {
             members[msg.sender].epochTimerStart = epoch() + 1; // reset timer
             members[msg.sender].rewardEarned = 0;
@@ -355,6 +333,10 @@ contract ArbitrumStaking is ArbitrumWrapper, Ownable2Step, ContractGuard {
         require(address(_token) != firmament, "firmament");
         require(address(_token) != arbitrum, "arbitrum");
         _token.safeTransfer(_to, _amount);
+    }
+
+    function setMaxDepositAmount(uint256 _amount) external onlyOwner {
+        maxDepositAmount = _amount;
     }
 
     function setMaxMultiple(uint256 _newMultiple) external onlyOwner {
